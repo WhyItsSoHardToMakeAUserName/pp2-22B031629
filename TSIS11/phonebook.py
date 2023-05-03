@@ -1,100 +1,66 @@
 import psycopg
 
+conn = psycopg.connect(dbname = "phones", user = 'postgres', password = 's09112001')
+cur = conn.cursor()
+conn.autocommit = True
+cur.execute(''' CREATE OR REPLACE FUNCTION get_pagination(
+                    _limit INT,
+                    _offset INT)
+                RETURNS TABLE(
+                    name TEXT,
+                    phone TEXT
+                )
+                LANGUAGE SQL
+                AS $$
+                    SELECT * FROM phonebook
+                    LIMIT _limit
+                    OFFSET _offset;
+                $$''')
+cur.execute(""" CREATE OR REPLACE PROCEDURE add_update_user(
+                    _name TEXT,
+                    _phone TEXT)
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                UPDATE phonebook SET phone = _phone WHERE name = _name;
+                IF NOT FOUND THEN
+                    INSERT INTO phonebook (name, phone) VALUES (_name, _phone);
+                END IF;
+            END
+            $$
+            """)
+cur.execute(""" CREATE OR REPLACE PROCEDURE delete_user(
+                _n TEXT,
+                _m TEXT)
+                LANGUAGE plpgsql
+                AS $$
+                BEGIN
+                    IF _m = 'p' THEN
+                        DELETE FROM phonebook WHERE phone = _n;
+                    ELSE
+                        DELETE FROM phonebook WHERE name = _n;
+                    END IF;
+                END
+                $$""")
 
 check = True
+while check:
+    print("[0] to exit\n[1] to print data with pattern\n[2] to insert/update user\n[3] insert many\n[4] pagination\n[5] delete by name/phone")
 
-with psycopg.connect(dbname="phones", user="postgres", password="s09112001") as con:
-    cur = con.cursor()
-    con.autocommit = True
-
-    # function for get paginated data
-    cur.execute("""CREATE OR REPLACE FUNCTION get_paginated_data(
-        _limit INTEGER,
-        _offset INTEGER
-    )
-    RETURNS TABLE (
-        name TEXT,
-        phone TEXT
-    )
-    LANGUAGE plpgsql
-    AS $$
-    BEGIN
-        RETURN QUERY SELECT *
-        FROM phonebook
-        LIMIT _limit
-        OFFSET _offset;
-    END;
-    $$;""")
-
-    # procedure for delete user
-    cur.execute("""create or replace procedure delete_phone(v text)
-    LANGUAGE plpgsql
-    as $$ 
-    begin
-        delete from phonebook where name = v or phone = v;
-    end;
-    $$;""")
-
-    # function  for print all data
-    cur.execute("""CREATE OR REPLACE FUNCTION print_data()
-RETURNS TABLE(name text, phone text) AS $$
-BEGIN
-    RETURN QUERY SELECT * FROM phonebook;
-END;
-$$ LANGUAGE plpgsql;""")
-
-    # procedure for update all insert user
-    cur.execute("""CREATE OR REPLACE PROCEDURE add_new(n text, p text)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    UPDATE phonebook SET phone = p WHERE name = n;
-    IF NOT FOUND THEN
-        INSERT INTO phonebook(name, phone) VALUES(n, p);
-    END IF;
-END;
-$$;
-""")
-
-    while check:
-        print(
-            "[0] to exit\n[1] to update or insert phone\n[2] to delete phone\n[3] print data\n[4] insert many values\n[5] get pagination")
-        n = int(input())
-        if n == 0:
-            check = False
-        if n == 1:
-            print("write the new user name or phone which you want to update or insert:")
-            new_name = input()
-            print("write the new phone which you want to update:")
-            new_phone = input()
-            cur.execute("CALL add_new(%s, %s)", (new_name, new_phone))
-        if n == 2:
-            print("Write the user name or phone number which you want to delete:")
-            np = input()
-            try:
-                a = int(np)
-                if type(a) is int:
-                    cur.execute(f"SELECT * FROM phonebook WHERE phone = '{np}'")
-                    cnt = cur.fetchall()
-                    if len(cnt) > 1:
-                        cur.execute(f"SELECT * FROM phonebook WHERE phone = '{np}'")
-                        print('Insert which one you want to delete')
-                        print(cnt)
-                        np = input()
-                        cur.execute(f"CALL delete_phone('{np}')")  # Use CALL statement and cur.execute()
-
-                    if len(cnt) == 1:
-                        cur.execute(f"CALL delete_phone('{np}')")  # Use CALL statement and cur.execute()
-
-            except ValueError:
-                cur.execute(f"CALL delete_phone('{np}')")  # Use CALL statement and cur.execute()
-
-        if n == 3:
-            cur.execute("SELECT * FROM print_data()")
-            result = cur.fetchall()
-            for i in result:
-                print(i)
-        if n == 4:
+    choice = int(input("number:"))
+    if choice == 0:
+        check = False
+    if choice == 1:
+        pattern = input("what pattern?")
+        cur.execute("SELECT * FROM phonebook WHERE CONCAT(name, phone) LIKE '%"+pattern+"%'")
+        result = cur.fetchall()
+        for i in result:
+            print(i)
+    if choice == 2:
+        user = input("user_name:")
+        phone = input("phone:")
+        cur.execute("CALL add_update_user(%s,%s)",(user,phone))
+    if choice == 3:
             print('insert name phone and so on')
             values = input()
             values = values.split(" ")
@@ -106,18 +72,20 @@ $$;
                 try:
                     if type(int(p)) is int:
                         a[n] = p
-                        cur.execute("CALL add_new(%s, %s)", (n, p))
+                        cur.execute("CALL add_update_user(%s, %s)", (n, p))
                 except:
                     inc_v[n] = p
                 i += 2
-            print(inc_v)
-        con.commit()
-        if n == 5:
-            print('insert page')
-            page = int(input())
-            print('insert start p')
-            start_p = int(input())
-            cur.execute("SELECT * FROM get_paginated_data(%s, %s)", (page, start_p))
-            result = cur.fetchall()
-            for i in result:
-                print(i)
+    if choice == 4:
+        offset = input("offset")
+        limit = input("limit:")
+        cur.execute('SELECT * FROM get_pagination(%s,%s)',(limit,offset))
+        result = cur.fetchall()
+        for i in result:
+            print(i)
+    if choice == 5:
+        what_to_delete = input('p/n:')
+        nameORphone = input('input name/phone to delete:')
+        cur.execute("CALL delete_user(%s,%s)",(nameORphone,what_to_delete))
+        
+
